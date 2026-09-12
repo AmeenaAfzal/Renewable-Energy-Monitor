@@ -4,7 +4,12 @@
 // SQL queries and PL/SQL programs from sql/person1-4.sql
 // ================================================================
 
-const API_BASE = 'http://localhost:3000/api';
+// Relative path, not a hardcoded host — the frontend is always served from
+// the same origin as the API (see server.js's express.static + /api routes),
+// whether that's http://localhost:3000 locally or https://your-app.onrender.com
+// in production. A hardcoded 'http://localhost:3000/api' here would work
+// locally but silently fail every fetch() once deployed.
+const API_BASE = '/api';
 
 const COLORS = {
   solar: '#E8A33D',
