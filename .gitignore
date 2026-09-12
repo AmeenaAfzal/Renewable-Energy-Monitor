@@ -1,0 +1,15 @@
+# Environment variables
+backend/.env
+
+# Node dependencies
+backend/node_modules/
+backend/npm-debug.log*
+
+# OS-generated junk files (can appear in any folder)
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor/IDE personal settings
+.vscode/
+.idea/ dont i only need .env and node modules

@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Renewable Energy Monitor</title>
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<div class="app">
+
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="brand">
+      <span class="brand-mark"></span>
+      <span class="brand-name">Renewable&nbsp;Monitor</span>
+    </div>
+
+    <ul class="nav-list">
+      <li><button class="nav-link active" data-view="overview">Overview</button></li>
+      <li><button class="nav-link" data-view="states">States</button></li>
+      <li><button class="nav-link" data-view="generation">Generation</button></li>
+      <li><button class="nav-link" data-view="battery">Battery Storage</button></li>
+      <li><button class="nav-link" data-view="rankings">Rankings</button></li>
+      <li><button class="nav-link" data-view="insights">Insights</button></li>
+      <li><button class="nav-link" data-view="entry">Data Entry</button></li>
+    </ul>
+
+    <div class="sidebar-footer">
+      <span class="dot dot-solar"></span> Solar
+      <span class="dot dot-wind"></span> Wind
+      <span class="dot dot-battery"></span> Battery
+    </div>
+  </nav>
+
+  <!-- Main content -->
+  <main class="main">
+
+    <!-- OVERVIEW -->
+    <section class="view active" id="view-overview">
+      <header class="view-header">
+        <h1>Overview</h1>
+        <p>National snapshot of renewable generation and battery performance.</p>
+      </header>
+
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <span class="kpi-label">States tracked</span>
+          <span class="kpi-value" id="kpi-states">—</span>
+        </div>
+        <div class="kpi-card accent-solar">
+          <span class="kpi-label">Total solar generated</span>
+          <span class="kpi-value" id="kpi-solar">—</span>
+          <span class="kpi-unit">MWh</span>
+        </div>
+        <div class="kpi-card accent-wind">
+          <span class="kpi-label">Total wind generated</span>
+          <span class="kpi-value" id="kpi-wind">—</span>
+          <span class="kpi-unit">MWh</span>
+        </div>
+        <div class="kpi-card accent-battery">
+          <span class="kpi-label">Total battery storage</span>
+          <span class="kpi-value" id="kpi-storage">—</span>
+          <span class="kpi-unit">MWh</span>
+        </div>
+      </div>
+
+      <div class="panel-grid">
+        <div class="panel panel-wide">
+          <h2>Top 5 states by solar generation</h2>
+          <canvas id="chart-top-solar"></canvas>
+        </div>
+        <div class="panel">
+          <h2>Quick insights</h2>
+          <ul class="insight-list" id="overview-insights">
+            <li class="insight-row">
+              <span class="insight-label">States above average generation</span>
+              <span class="insight-value" id="insight-above-avg">—</span>
+            </li>
+            <li class="insight-row">
+              <span class="insight-label">States missing generation data</span>
+              <span class="insight-value" id="insight-missing-data">—</span>
+            </li>
+            <li class="insight-row">
+              <span class="insight-label">States with battery inefficiency</span>
+              <span class="insight-value" id="insight-inefficient">—</span>
+            </li>
+          </ul>
+          <button class="link-button" data-view-link="insights">View details →</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- INSIGHTS -->
+    <section class="view" id="view-insights">
+      <header class="view-header">
+        <h1>Insights</h1>
+        <p>Cross-table analytics: national benchmarks, data gaps, and battery health flags.</p>
+      </header>
+
+      <div class="panel-grid">
+        <div class="panel">
+          <h2>States above national average generation</h2>
+          <table class="data-table" id="above-average-table">
+            <thead><tr><th>State</th><th>Total generation (MWh)</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="panel">
+          <h2>States missing generation data</h2>
+          <table class="data-table" id="missing-data-table">
+            <thead><tr><th>State</th><th>Region</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Battery efficiency alerts</h2>
+        <p class="panel-note">States where average discharge exceeds average charge — a sign of possible battery strain or overuse.</p>
+        <table class="data-table" id="inefficient-table">
+          <thead><tr><th>State</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="panel">
+        <h2>Running total explorer</h2>
+        <p class="panel-note">Powered by the <code>show_running_total</code> PL/SQL cursor procedure — walks each daily reading in order and accumulates a running sum server-side.</p>
+        <div class="toolbar">
+          <label for="running-total-state">State</label>
+          <select id="running-total-state"></select>
+          <button class="action-button" id="running-total-load">Load running total</button>
+        </div>
+        <table class="data-table" id="running-total-table">
+          <thead><tr><th>Date</th><th>Daily (MWh)</th><th>Running total (MWh)</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- DATA ENTRY -->
+    <section class="view" id="view-entry">
+      <header class="view-header">
+        <h1>Data Entry</h1>
+        <p>Insert new readings directly using database triggers.</p>
+      </header>
+
+      <div class="panel-grid">
+        <div class="panel">
+          <h2>Add a generation reading</h2>
+          <p class="panel-note">
+            <code>trg_calc_total_renewable</code> recalculates <code>total_renewable_mwh</code> automatically
+            before the row is saved. The
+            <code>chk_generation_nonnegative</code> check constraint rejects any negative
+            wind, solar, or other reading.
+          </p>
+          <form id="generation-entry-form" class="entry-form">
+            <label>State
+              <select id="entry-gen-state" required></select>
+            </label>
+            <label>Date
+              <input type="date" id="entry-gen-date" required />
+            </label>
+            <label>Wind (MWh)
+              <input type="number" id="entry-gen-wind" step="0.01" value="0" required />
+            </label>
+            <label>Solar (MWh)
+              <input type="number" id="entry-gen-solar" step="0.01" value="0" required />
+            </label>
+            <label>Other renewable (MWh)
+              <input type="number" id="entry-gen-other" step="0.01" value="0" required />
+            </label>
+            <button type="submit" class="action-button">Insert reading</button>
+          </form>
+          <div class="entry-result" id="entry-gen-result"></div>
+        </div>
+
+        <div class="panel">
+          <h2>Add a battery reading</h2>
+          <p class="panel-note">
+            <code>trg_battery_valid_storage</code> rejects negative storage, and the
+            <code>chk_discharge_limit</code> check constraint rejects discharge greater than
+            charge plus storage.
+          </p>
+          <form id="battery-entry-form" class="entry-form">
+            <label>State
+              <select id="entry-batt-state" required></select>
+            </label>
+            <label>Date
+              <input type="date" id="entry-batt-date" required />
+            </label>
+            <label>Charged (MWh)
+              <input type="number" id="entry-batt-charged" step="0.01" value="0" required />
+            </label>
+            <label>Discharged (MWh)
+              <input type="number" id="entry-batt-discharged" step="0.01" value="0" required />
+            </label>
+            <label>Storage level (MWh)
+              <input type="number" id="entry-batt-storage" step="0.01" value="0" required />
+            </label>
+            <button type="submit" class="action-button">Insert reading</button>
+          </form>
+          <div class="entry-result" id="entry-batt-result"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- STATES -->
+    <section class="view" id="view-states">
+      <header class="view-header">
+        <h1>States</h1>
+        <p>All tracked states with their region.</p>
+      </header>
+
+      <div class="toolbar">
+        <label for="region-filter">Filter by region</label>
+        <select id="region-filter">
+          <option value="">All regions</option>
+        </select>
+      </div>
+
+      <div class="panel">
+        <table class="data-table" id="states-table">
+          <thead>
+            <tr><th>State</th><th>Code</th><th>Region</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- GENERATION -->
+    <section class="view" id="view-generation">
+      <header class="view-header">
+        <h1>Generation</h1>
+        <p>Daily solar and wind output for a selected state.</p>
+      </header>
+
+      <div class="toolbar">
+        <label for="generation-state">State</label>
+        <select id="generation-state"></select>
+      </div>
+
+      <div class="panel-grid">
+        <div class="panel panel-wide">
+          <h2>Monthly generation trend</h2>
+          <canvas id="chart-generation-trend"></canvas>
+        </div>
+        <div class="panel">
+          <h2>Solar vs. wind totals</h2>
+          <canvas id="chart-generation-totals"></canvas>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>States where wind output outperforms solar</h2>
+        <table class="data-table" id="wind-dominant-table">
+          <thead><tr><th>State</th><th>Avg wind (MWh)</th><th>Avg solar (MWh)</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- BATTERY -->
+    <section class="view" id="view-battery">
+      <header class="view-header">
+        <h1>Battery Storage</h1>
+        <p>Charge, discharge, and efficiency by state.</p>
+      </header>
+
+      <div class="toolbar">
+        <label for="battery-state">State</label>
+        <select id="battery-state"></select>
+        <label for="battery-date">Date</label>
+        <input type="date" id="battery-date" value="2025-02-01" />
+      </div>
+
+      <div class="panel-grid">
+        <div class="panel">
+          <h2>Battery efficiency</h2>
+          <div class="gauge-wrap">
+            <canvas id="chart-efficiency-gauge"></canvas>
+            <span class="gauge-value" id="efficiency-value">—</span>
+          </div>
+        </div>
+        <div class="panel panel-wide">
+          <h2>Charged vs. discharged by state</h2>
+          <canvas id="chart-battery-totals"></canvas>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Average storage level by month</h2>
+        <canvas id="chart-storage-trend"></canvas>
+      </div>
+    </section>
+
+    <!-- RANKINGS -->
+    <section class="view" id="view-rankings">
+      <header class="view-header">
+        <h1>Rankings</h1>
+        <p>States ranked by combined generation and battery performance.</p>
+      </header>
+
+      <div class="panel">
+        <table class="data-table" id="rankings-table">
+          <thead>
+            <tr><th>Rank</th><th>State</th><th>Total generation (MWh)</th><th>Performance score</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.1/chart.umd.min.js"></script>
+<script defer src="app.js"></script>
+</body>
+</html>
