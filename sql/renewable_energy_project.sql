@@ -48,30 +48,42 @@ DELETE FROM States WHERE state_id = 100;
 COMMIT;
 
 SELECT * FROM States WHERE state_id = 100;
+
+-- INSERT ... RETURNING INTO: this is the exact pattern the Data Entry tab's
+-- "Add a generation reading" form uses (POST /api/generation). Note that
+-- total_renewable_mwh is never supplied here -- trg_calc_total_renewable
+-- (Section 7) computes it BEFORE the row is written, and RETURNING hands
+-- that trigger-computed value straight back without a second SELECT.
+INSERT INTO States (state_id, state_name, state_code, region)
+VALUES (101, 'RETURNING Demo State', 98, 'Central Region');
+
+VARIABLE computed_total NUMBER;
+
+INSERT INTO DailyGeneration (state_id, reading_date, wind_energy_mwh, solar_energy_mwh, other_renewable_mwh)
+VALUES (101, DATE '2031-01-01', 2.00, 3.00, 0.50)
+RETURNING total_renewable_mwh INTO :computed_total;
+
+PRINT computed_total;
+-- expected: 5.5 (2.00 + 3.00 + 0.50) -- calculated by the trigger, not typed by hand
+
+-- clean up the demo rows
+DELETE FROM DailyGeneration WHERE state_id = 101;
+DELETE FROM States WHERE state_id = 101;
+COMMIT;
 -- ================================================================
 -- SECTION 3: QUERIES
 -- ================================================================
 
--- Q1 (simple filter): states in a given region
-SELECT state_name, state_code
+-- Q1 (simple SELECT): every tracked state, alphabetical
+-- -> feeds every state dropdown across the app (Generation, Battery,
+--    Data Entry) and the "States tracked" KPI on Overview, via GET /api/states
+SELECT state_id, state_name, state_code, region
 FROM States
-WHERE region = 'Southern Region'
 ORDER BY state_name;
 
--- Q2 (aggregation): number of states per region
-SELECT region, COUNT(*) AS total_states
-FROM States
-GROUP BY region
-ORDER BY total_states DESC;
-
--- Q3 (correlated subquery / NOT EXISTS): states with no generation data
-SELECT s.state_name, s.region
-FROM States s
-WHERE NOT EXISTS (
-    SELECT 1 FROM DailyGeneration dg WHERE dg.state_id = s.state_id
-);
-
--- Q4 (JOIN + aggregation): total solar and wind generation per state
+-- Q2 (JOIN + aggregation): total solar and wind generation per state
+-- -> feeds the "Total solar/wind generated" KPIs on Overview and the
+--    "Solar vs. wind totals" chart on Generation, via GET /api/generation/totals
 SELECT s.state_name,
        SUM(dg.solar_energy_mwh) AS total_solar,
        SUM(dg.wind_energy_mwh)  AS total_wind
@@ -80,7 +92,20 @@ JOIN States s ON s.state_id = dg.state_id
 GROUP BY s.state_name
 ORDER BY total_solar DESC;
 
--- Q5 (ORDER BY + FETCH FIRST): top 5 states by solar generation
+-- Q3 (JOIN + date grouping): total generation per state, per calendar month
+-- -> feeds the "Monthly generation trend" line chart on the Generation tab,
+--    filtered to one state at a time via GET /api/generation/monthly?state_id=
+SELECT s.state_name,
+       TO_CHAR(dg.reading_date, 'YYYY-MM') AS gen_month,
+       SUM(dg.total_renewable_mwh) AS monthly_total
+FROM DailyGeneration dg
+JOIN States s ON s.state_id = dg.state_id
+GROUP BY s.state_name, TO_CHAR(dg.reading_date, 'YYYY-MM')
+ORDER BY gen_month;
+
+-- Q4 (ORDER BY + FETCH FIRST): top 5 states by solar generation
+-- -> feeds the "Top 5 states by solar generation" chart on Overview,
+--    via GET /api/generation/top-solar
 SELECT s.state_name, SUM(dg.solar_energy_mwh) AS total_solar
 FROM DailyGeneration dg
 JOIN States s ON s.state_id = dg.state_id
@@ -88,16 +113,9 @@ GROUP BY s.state_name
 ORDER BY total_solar DESC
 FETCH FIRST 5 ROWS ONLY;
 
--- Q6 (HAVING): states where average wind beats average solar
-SELECT s.state_name,
-       ROUND(AVG(dg.wind_energy_mwh), 2)  AS avg_wind,
-       ROUND(AVG(dg.solar_energy_mwh), 2) AS avg_solar
-FROM DailyGeneration dg
-JOIN States s ON s.state_id = dg.state_id
-GROUP BY s.state_name
-HAVING AVG(dg.wind_energy_mwh) > AVG(dg.solar_energy_mwh);
-
--- Q7 (JOIN + aggregation): total charged vs discharged per state
+-- Q6 (JOIN + aggregation): total charged vs discharged per state
+-- -> feeds the "Total battery storage" KPI on Overview and the "Charged
+--    vs. discharged by state" chart on Battery, via GET /api/battery/totals
 SELECT s.state_name,
        SUM(b.battery_charged_mwh)    AS total_charged,
        SUM(b.battery_discharged_mwh) AS total_discharged
@@ -106,14 +124,9 @@ JOIN States s ON s.state_id = b.state_id
 GROUP BY s.state_name
 ORDER BY total_charged DESC;
 
--- Q8 (HAVING): states where discharge consistently exceeds charge
-SELECT s.state_name
-FROM BatteryStorage b
-JOIN States s ON s.state_id = b.state_id
-GROUP BY s.state_name
-HAVING AVG(b.battery_discharged_mwh) > AVG(b.battery_charged_mwh);
-
--- Q9: create a view joining all 3 tables
+-- Q8: create a view joining all 3 tables
+-- -> not queried directly by any endpoint itself; Q9 and Q10 both select
+--    from this view instead of repeating the 3-way join
 CREATE OR REPLACE VIEW vw_state_summary AS
 SELECT
     s.state_id,
@@ -131,7 +144,9 @@ FROM States s
 JOIN DailyGeneration dg ON dg.state_id = s.state_id
 JOIN BatteryStorage b   ON b.state_id = s.state_id AND b.reading_date = dg.reading_date;
 
--- Q10 (uses the view + nested subquery): states above the national average generation
+-- Q9 (uses the view + nested subquery): states above the national average generation
+-- -> feeds "States above average generation" on Overview and the matching
+--    table on Insights, via GET /api/summary/above-average
 SELECT state_name, total_generation
 FROM (
     SELECT state_name, SUM(total_renewable_mwh) AS total_generation
@@ -146,37 +161,35 @@ WHERE total_generation > (
     )
 );
 
--- Q11 (window function): rank states by total generation
+-- Q10 (window function): rank states by total generation
+-- -> feeds the Rankings tab table (rank + total generation columns),
+--    via GET /api/summary/rankings
 SELECT state_id, state_name,
        SUM(total_renewable_mwh) AS total_generation,
        RANK() OVER (ORDER BY SUM(total_renewable_mwh) DESC) AS generation_rank
 FROM vw_state_summary
 GROUP BY state_id, state_name;
 
+-- Q11 (aggregate, no grouping): single-row national totals
+-- -> feeds the "Total solar generated", "Total wind generated", and
+--    "Total battery storage" KPI cards on Overview, via
+--    GET /api/summary/national-totals. Previously these three numbers were
+--    computed by summing Q2's per-state rows in the browser; this replaces
+--    that client-side aggregation with one server-computed row.
+SELECT
+    (SELECT SUM(solar_energy_mwh)    FROM DailyGeneration) AS total_solar,
+    (SELECT SUM(wind_energy_mwh)     FROM DailyGeneration) AS total_wind,
+    (SELECT SUM(battery_storage_mwh) FROM BatteryStorage)  AS total_battery_storage
+FROM dual;
+
 
 -- ================================================================
 -- SECTION 4: PL/SQL - FUNCTIONS
 -- ================================================================
 
--- Function 1: return the region for a given state
-CREATE OR REPLACE FUNCTION get_region (p_state_id IN NUMBER)
-RETURN VARCHAR2
-IS
-    v_region VARCHAR2(30);
-BEGIN
-    SELECT region INTO v_region FROM States WHERE state_id = p_state_id;
-    RETURN v_region;
-EXCEPTION
-    WHEN NO_DATA_FOUND THEN
-        RETURN 'Unknown';
-END get_region;
-/
-
--- test
-SELECT get_region(3) AS region FROM dual;
-
-
 -- Function 2: battery efficiency % for a state on a given date
+-- -> feeds the "Battery efficiency" gauge on the Battery Storage tab,
+--    via GET /api/battery/efficiency?state_id=&date=
 CREATE OR REPLACE FUNCTION battery_efficiency (p_state_id IN NUMBER, p_date IN DATE)
 RETURN NUMBER
 IS
@@ -210,6 +223,9 @@ SELECT battery_efficiency(1, DATE '2025-02-01') AS efficiency_percent FROM dual;
 -- ================================================================
 -- SECTION 5: PL/SQL - PROCEDURE WITH CURSOR
 -- ================================================================
+-- -> feeds the "Running total explorer" table on the Insights tab, via
+--    GET /api/generation/running-total/:stateId, which drains this
+--    procedure's DBMS_OUTPUT.PUT_LINE output line by line
 
 CREATE OR REPLACE PROCEDURE show_running_total (p_state_id IN NUMBER)
 IS
@@ -241,6 +257,8 @@ EXEC show_running_total(1);
 -- ================================================================
 -- SECTION 6: PL/SQL - PROCEDURE WITH OUT PARAMETER (performance score)
 -- ================================================================
+-- -> feeds the "Performance score" column on the Rankings tab, via
+--    GET /api/summary/performance-score/:stateId
 
 CREATE OR REPLACE PROCEDURE calculate_performance_score (
     p_state_id IN  NUMBER,
@@ -280,6 +298,9 @@ PRINT v_score;
 -- ================================================================
 
 -- Trigger 1: auto-calculate total_renewable_mwh so it's never entered by hand incorrectly
+-- -> fires on the "Add a generation reading" form (Data Entry tab), via
+--    POST /api/generation; the computed value is read back with
+--    RETURNING total_renewable_mwh INTO ... and shown in the success message
 CREATE OR REPLACE TRIGGER trg_calc_total_renewable
 BEFORE INSERT OR UPDATE ON DailyGeneration
 FOR EACH ROW
@@ -289,6 +310,9 @@ END trg_calc_total_renewable;
 /
 
 -- Trigger 2: block invalid (negative) battery storage values
+-- -> fires on the "Add a battery reading" form (Data Entry tab), via
+--    POST /api/battery; a rejection surfaces as a plain-English error
+--    message via friendlyInsertError() in server.js
 CREATE OR REPLACE TRIGGER trg_battery_valid_storage
 BEFORE INSERT OR UPDATE ON BatteryStorage
 FOR EACH ROW

@@ -22,7 +22,6 @@
 
     <ul class="nav-list">
       <li><button class="nav-link active" data-view="overview">Overview</button></li>
-      <li><button class="nav-link" data-view="states">States</button></li>
       <li><button class="nav-link" data-view="generation">Generation</button></li>
       <li><button class="nav-link" data-view="battery">Battery Storage</button></li>
       <li><button class="nav-link" data-view="rankings">Rankings</button></li>
@@ -81,14 +80,6 @@
               <span class="insight-label">States above average generation</span>
               <span class="insight-value" id="insight-above-avg">—</span>
             </li>
-            <li class="insight-row">
-              <span class="insight-label">States missing generation data</span>
-              <span class="insight-value" id="insight-missing-data">—</span>
-            </li>
-            <li class="insight-row">
-              <span class="insight-label">States with battery inefficiency</span>
-              <span class="insight-value" id="insight-inefficient">—</span>
-            </li>
           </ul>
           <button class="link-button" data-view-link="insights">View details →</button>
         </div>
@@ -99,31 +90,13 @@
     <section class="view" id="view-insights">
       <header class="view-header">
         <h1>Insights</h1>
-        <p>Cross-table analytics: national benchmarks, data gaps, and battery health flags.</p>
+        <p>Cross-table analytics: national generation benchmarks and running totals.</p>
       </header>
 
-      <div class="panel-grid">
-        <div class="panel">
-          <h2>States above national average generation</h2>
-          <table class="data-table" id="above-average-table">
-            <thead><tr><th>State</th><th>Total generation (MWh)</th></tr></thead>
-            <tbody></tbody>
-          </table>
-        </div>
-        <div class="panel">
-          <h2>States missing generation data</h2>
-          <table class="data-table" id="missing-data-table">
-            <thead><tr><th>State</th><th>Region</th></tr></thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </div>
-
       <div class="panel">
-        <h2>Battery efficiency alerts</h2>
-        <p class="panel-note">States where average discharge exceeds average charge — a sign of possible battery strain or overuse.</p>
-        <table class="data-table" id="inefficient-table">
-          <thead><tr><th>State</th></tr></thead>
+        <h2>States above national average generation</h2>
+        <table class="data-table" id="above-average-table">
+          <thead><tr><th>State</th><th>Total generation (MWh)</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -147,7 +120,7 @@
     <section class="view" id="view-entry">
       <header class="view-header">
         <h1>Data Entry</h1>
-        <p>Insert new readings directly using database triggers.</p>
+        <p>Insert new readings directly using database triggers</p>
       </header>
 
       <div class="panel-grid">
@@ -210,30 +183,6 @@
       </div>
     </section>
 
-    <!-- STATES -->
-    <section class="view" id="view-states">
-      <header class="view-header">
-        <h1>States</h1>
-        <p>All tracked states with their region.</p>
-      </header>
-
-      <div class="toolbar">
-        <label for="region-filter">Filter by region</label>
-        <select id="region-filter">
-          <option value="">All regions</option>
-        </select>
-      </div>
-
-      <div class="panel">
-        <table class="data-table" id="states-table">
-          <thead>
-            <tr><th>State</th><th>Code</th><th>Region</th></tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </section>
-
     <!-- GENERATION -->
     <section class="view" id="view-generation">
       <header class="view-header">
@@ -257,13 +206,6 @@
         </div>
       </div>
 
-      <div class="panel">
-        <h2>States where wind output outperforms solar</h2>
-        <table class="data-table" id="wind-dominant-table">
-          <thead><tr><th>State</th><th>Avg wind (MWh)</th><th>Avg solar (MWh)</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
     </section>
 
     <!-- BATTERY -->
@@ -292,11 +234,6 @@
           <h2>Charged vs. discharged by state</h2>
           <canvas id="chart-battery-totals"></canvas>
         </div>
-      </div>
-
-      <div class="panel">
-        <h2>Average storage level by month</h2>
-        <canvas id="chart-storage-trend"></canvas>
       </div>
     </section>
 

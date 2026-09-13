@@ -4,12 +4,7 @@
 // SQL queries and PL/SQL programs from sql/person1-4.sql
 // ================================================================
 
-// Relative path, not a hardcoded host — the frontend is always served from
-// the same origin as the API (see server.js's express.static + /api routes),
-// whether that's http://localhost:3000 locally or https://your-app.onrender.com
-// in production. A hardcoded 'http://localhost:3000/api' here would work
-// locally but silently fail every fetch() once deployed.
-const API_BASE = '/api';
+const API_BASE = 'http://localhost:3000/api';
 
 const COLORS = {
   solar: '#E8A33D',
@@ -109,57 +104,26 @@ function upsertChart(canvasId, config) {
   return charts[canvasId];
 }
 
-// Chart.js's default legend click TOGGLES the clicked series off, leaving
-// everyone else visible. For a multi-state comparison chart, clicking a
-// state name is far more useful as an "isolate" action — show only that
-// series — with a second click on the same label restoring everyone.
-function isolateLegendOnClick(e, legendItem, legend) {
-  const chart = legend.chart;
-  const clickedIndex = legendItem.datasetIndex;
-  const isOnlyThisOneVisible = chart.data.datasets.every((_, i) =>
-    i === clickedIndex ? chart.isDatasetVisible(i) : !chart.isDatasetVisible(i)
-  );
-
-  chart.data.datasets.forEach((_, i) => {
-    if (isOnlyThisOneVisible) {
-      chart.show(i);        // clicked again while isolated -> restore all
-    } else if (i === clickedIndex) {
-      chart.show(i);
-    } else {
-      chart.hide(i);
-    }
-  });
-}
-
 // ----------------------------------------------------------------
 // OVERVIEW  (Person 1 region counts, Person 2 solar totals,
 //            Person 4 combined summary)
 // ----------------------------------------------------------------
 async function loadOverview() {
   try {
-    const [states, generationTotals, topSolar, batteryTotals, aboveAverage, missingData, inefficient] = await Promise.all([
+    const [states, nationalTotals, topSolar, aboveAverage] = await Promise.all([
       get('/states'),
-      get('/generation/totals'),
+      get('/summary/national-totals'),
       get('/generation/top-solar'),
-      get('/battery/totals'),
-      get('/summary/above-average'),
-      get('/states/missing-data'),
-      get('/battery/inefficient')
+      get('/summary/above-average')
     ]);
 
     document.getElementById('kpi-states').textContent = states.length;
 
-    const totalSolar = generationTotals.reduce((sum, r) => sum + Number(r.TOTAL_SOLAR || 0), 0);
-    const totalWind = generationTotals.reduce((sum, r) => sum + Number(r.TOTAL_WIND || 0), 0);
-    const totalStorage = batteryTotals.reduce((sum, r) => sum + Number(r.TOTAL_CHARGED || 0), 0);
-
-    document.getElementById('kpi-solar').textContent = fmt(totalSolar);
-    document.getElementById('kpi-wind').textContent = fmt(totalWind);
-    document.getElementById('kpi-storage').textContent = fmt(totalStorage);
+    document.getElementById('kpi-solar').textContent = fmt(nationalTotals.TOTAL_SOLAR);
+    document.getElementById('kpi-wind').textContent = fmt(nationalTotals.TOTAL_WIND);
+    document.getElementById('kpi-storage').textContent = fmt(nationalTotals.TOTAL_BATTERY_STORAGE);
 
     document.getElementById('insight-above-avg').textContent = aboveAverage.length;
-    document.getElementById('insight-missing-data').textContent = missingData.length;
-    document.getElementById('insight-inefficient').textContent = inefficient.length;
 
     upsertChart('chart-top-solar', {
       type: 'bar',
@@ -197,44 +161,13 @@ document.querySelectorAll('[data-view-link]').forEach(btn => {
 });
 
 // ----------------------------------------------------------------
-// STATES  (Person 1)
-// ----------------------------------------------------------------
-async function loadStates() {
-  try {
-    const states = await get('/states');
-    const regions = [...new Set(states.map(s => s.REGION))].sort();
-
-    const filterEl = document.getElementById('region-filter');
-    filterEl.innerHTML = '<option value="">All regions</option>' +
-      regions.map(r => `<option value="${r}">${r}</option>`).join('');
-
-    renderStatesTable(states);
-
-    filterEl.addEventListener('change', async () => {
-      const rows = filterEl.value ? await get(`/states?region=${encodeURIComponent(filterEl.value)}`) : states;
-      renderStatesTable(rows);
-    });
-  } catch (err) {
-    console.error('States load failed:', err.message);
-  }
-}
-
-function renderStatesTable(rows) {
-  const tbody = document.querySelector('#states-table tbody');
-  tbody.innerHTML = rows.map(r =>
-    `<tr><td>${r.STATE_NAME}</td><td>${r.STATE_CODE}</td><td>${r.REGION}</td></tr>`
-  ).join('');
-}
-
-// ----------------------------------------------------------------
 // GENERATION  (Person 2)
 // ----------------------------------------------------------------
 async function loadGeneration() {
   try {
-    const [states, totals, windDominant] = await Promise.all([
+    const [states, totals] = await Promise.all([
       get('/states'),
-      get('/generation/totals'),
-      get('/generation/wind-dominant')
+      get('/generation/totals')
     ]);
 
     const selectEl = document.getElementById('generation-state');
@@ -255,16 +188,6 @@ async function loadGeneration() {
         scales: { x: { grid: { display: false } }, y: { grid: { color: COLORS.grid } } }
       }
     });
-
-    const windThead = document.querySelector('#wind-dominant-table thead');
-    const windTbody = document.querySelector('#wind-dominant-table tbody');
-    if (windDominant.length) {
-      windThead.innerHTML = '<tr><th>State</th><th>Avg wind (MWh)</th><th>Avg solar (MWh)</th></tr>';
-      windTbody.innerHTML = windDominant.map(r => `<tr><td>${r.STATE_NAME}</td><td>${fmt(r.AVG_WIND)}</td><td>${fmt(r.AVG_SOLAR)}</td></tr>`).join('');
-    } else {
-      windThead.innerHTML = ''; // no qualifying states — drop the Avg wind/solar headers, they'd sit above nothing
-      windTbody.innerHTML = '<tr><td>No state currently generates more wind than solar on average.</td></tr>';
-    }
 
     async function loadTrend(stateId) {
       try {
@@ -307,10 +230,9 @@ async function loadGeneration() {
 // ----------------------------------------------------------------
 async function loadBattery() {
   try {
-    const [states, totals, monthlyAvg] = await Promise.all([
+    const [states, totals] = await Promise.all([
       get('/states'),
-      get('/battery/totals'),
-      get('/battery/monthly-average')
+      get('/battery/totals')
     ]);
 
     const selectEl = document.getElementById('battery-state');
@@ -333,36 +255,9 @@ async function loadBattery() {
       }
     });
 
-    const monthLabels = [...new Set(monthlyAvg.map(r => r.STORAGE_MONTH))].sort();
-    const byState = {};
-    monthlyAvg.forEach(r => {
-      byState[r.STATE_NAME] = byState[r.STATE_NAME] || {};
-      byState[r.STATE_NAME][r.STORAGE_MONTH] = r.AVG_STORAGE;
-    });
-    const palette = [COLORS.battery, COLORS.wind, COLORS.solar, '#C97B4A', '#5B8C87'];
-
-    upsertChart('chart-storage-trend', {
-      type: 'line',
-      data: {
-        labels: monthLabels,
-        datasets: Object.entries(byState).map(([name, vals], i) => ({
-          label: name,
-          data: monthLabels.map(m => vals[m] ?? null),
-          borderColor: palette[i % palette.length],
-          backgroundColor: 'transparent',
-          tension: 0.3
-        }))
-      },
-      options: {
-        responsive: true,
-        plugins: { legend: { position: 'bottom', labels: { boxWidth: 10 }, onClick: isolateLegendOnClick } },
-        scales: { x: { grid: { display: false } }, y: { grid: { color: COLORS.grid } } }
-      }
-    });
-
     async function loadEfficiency() {
+      const stateId = selectEl.value;
       try {
-        const stateId = selectEl.value;
         const date = dateEl.value;
         const result = await get(`/battery/efficiency?state_id=${stateId}&date=${date}`);
         const pct = result.EFFICIENCY_PERCENT ?? 0;
@@ -439,24 +334,14 @@ async function loadRankings() {
 // ----------------------------------------------------------------
 async function loadInsights() {
   try {
-    const [states, aboveAverage, missingData, inefficient] = await Promise.all([
+    const [states, aboveAverage] = await Promise.all([
       get('/states'),
-      get('/summary/above-average'),
-      get('/states/missing-data'),
-      get('/battery/inefficient')
+      get('/summary/above-average')
     ]);
 
     document.querySelector('#above-average-table tbody').innerHTML = aboveAverage.length
       ? aboveAverage.map(r => `<tr><td>${r.STATE_NAME}</td><td>${fmt(r.TOTAL_GENERATION)}</td></tr>`).join('')
       : '<tr><td colspan="2">No states currently exceed the national average.</td></tr>';
-
-    document.querySelector('#missing-data-table tbody').innerHTML = missingData.length
-      ? missingData.map(r => `<tr><td>${r.STATE_NAME}</td><td>${r.REGION}</td></tr>`).join('')
-      : '<tr><td colspan="2">Every tracked state has at least one generation reading.</td></tr>';
-
-    document.querySelector('#inefficient-table tbody').innerHTML = inefficient.length
-      ? inefficient.map(r => `<tr><td>${r.STATE_NAME}</td></tr>`).join('')
-      : '<tr><td>No states currently discharge more than they charge on average.</td></tr>';
 
     const stateSelect = document.getElementById('running-total-state');
     stateSelect.innerHTML = states.map(s => `<option value="${s.STATE_ID}">${s.STATE_NAME}</option>`).join('');
@@ -579,7 +464,6 @@ async function wireDataEntryForms() {
 // Initial load - fetch every view once so switching tabs is instant
 // ----------------------------------------------------------------
 loadOverview();
-loadStates();
 loadGeneration();
 loadBattery();
 loadRankings();

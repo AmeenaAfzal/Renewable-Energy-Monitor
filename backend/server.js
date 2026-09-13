@@ -76,7 +76,7 @@ function friendlyInsertError(err) {
         return 'That date could not be read — please pick one with the date picker rather than typing it.';
     }
     if (msg.includes('ORA-00001')) {
-        return 'A reading for that state and date already exists.';
+        return 'Insert cannot be performed - please recheck if values are correct';
     }
 
     // Fallback for anything unrecognized: still trims the message down to
@@ -88,47 +88,11 @@ function friendlyInsertError(err) {
 // PERSON 1: States
 // ----------------------------------------------------------------
 
-// all states, with optional ?region= filter
+// all states -> feeds the state dropdowns on Generation, Battery, Data Entry
 app.get('/api/states', async (req, res) => {
     try {
-        const { region } = req.query;
-        const rows = region
-            ? await query(
-                `SELECT state_id, state_name, state_code, region
-                 FROM States WHERE region = :region ORDER BY state_name`,
-                { region }
-              )
-            : await query(`SELECT state_id, state_name, state_code, region FROM States ORDER BY state_name`);
+        const rows = await query(`SELECT state_id, state_name, state_code, region FROM States ORDER BY state_name`);
         res.json(rows);
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// count of states per region -> feeds the region breakdown chart
-app.get('/api/states/region-counts', async (req, res) => {
-    try {
-        const rows = await query(
-            `SELECT region, COUNT(*) AS total_states FROM States GROUP BY region ORDER BY total_states DESC`
-        );
-        res.json(rows);
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// states with no generation data yet
-app.get('/api/states/missing-data', async (req, res) => {
-    try {
-        const rows = await query(
-            `SELECT s.state_name, s.region FROM States s
-             WHERE NOT EXISTS (SELECT 1 FROM DailyGeneration dg WHERE dg.state_id = s.state_id)`
-        );
-        res.json(rows);
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// PL/SQL function get_region()
-app.get('/api/states/:id/region', async (req, res) => {
-    try {
-        const rows = await query(`SELECT get_region(:id) AS region FROM dual`, { id: req.params.id });
-        res.json(rows[0]);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -175,33 +139,6 @@ app.get('/api/generation/top-solar', async (req, res) => {
              GROUP BY s.state_name ORDER BY total_solar DESC FETCH FIRST 5 ROWS ONLY`
         );
         res.json(rows);
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// states where wind beats solar on average
-app.get('/api/generation/wind-dominant', async (req, res) => {
-    try {
-        const rows = await query(
-            `SELECT s.state_name,
-                    ROUND(AVG(dg.wind_energy_mwh), 2)  AS avg_wind,
-                    ROUND(AVG(dg.solar_energy_mwh), 2) AS avg_solar
-             FROM DailyGeneration dg JOIN States s ON s.state_id = dg.state_id
-             GROUP BY s.state_name
-             HAVING AVG(dg.wind_energy_mwh) > AVG(dg.solar_energy_mwh)`
-        );
-        res.json(rows);
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// PL/SQL function monthly_avg_generation()
-app.get('/api/generation/monthly-average', async (req, res) => {
-    try {
-        const { state_id, month } = req.query;
-        const rows = await query(
-            `SELECT monthly_avg_generation(:state_id, :month) AS avg_generation FROM dual`,
-            { state_id, month }
-        );
-        res.json(rows[0]);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -293,33 +230,6 @@ app.get('/api/battery/totals', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// average storage per state per month -> feeds line chart
-app.get('/api/battery/monthly-average', async (req, res) => {
-    try {
-        const rows = await query(
-            `SELECT s.state_name,
-                    TO_CHAR(b.reading_date, 'YYYY-MM') AS storage_month,
-                    ROUND(AVG(b.battery_storage_mwh), 2) AS avg_storage
-             FROM BatteryStorage b JOIN States s ON s.state_id = b.state_id
-             GROUP BY s.state_name, TO_CHAR(b.reading_date, 'YYYY-MM')
-             ORDER BY storage_month`
-        );
-        res.json(rows);
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-// states discharging more than they charge, on average
-app.get('/api/battery/inefficient', async (req, res) => {
-    try {
-        const rows = await query(
-            `SELECT s.state_name FROM BatteryStorage b JOIN States s ON s.state_id = b.state_id
-             GROUP BY s.state_name
-             HAVING AVG(b.battery_discharged_mwh) > AVG(b.battery_charged_mwh)`
-        );
-        res.json(rows);
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
 // PL/SQL function battery_efficiency() -> feeds the efficiency gauge
 app.get('/api/battery/efficiency', async (req, res) => {
     try {
@@ -361,19 +271,6 @@ app.post('/api/battery', async (req, res) => {
 // PERSON 4: Cross-table analytics & integration
 // ----------------------------------------------------------------
 
-// combined generation + storage totals per state, from vw_state_summary
-app.get('/api/summary/combined', async (req, res) => {
-    try {
-        const rows = await query(
-            `SELECT state_name,
-                    SUM(total_renewable_mwh) AS total_generation,
-                    SUM(battery_storage_mwh) AS total_storage
-             FROM vw_state_summary GROUP BY state_name ORDER BY total_generation DESC`
-        );
-        res.json(rows);
-    } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
 // states above the national average generation
 app.get('/api/summary/above-average', async (req, res) => {
     try {
@@ -390,6 +287,20 @@ app.get('/api/summary/above-average', async (req, res) => {
              )`
         );
         res.json(rows);
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// single-row national totals -> feeds the three Overview KPI cards
+app.get('/api/summary/national-totals', async (req, res) => {
+    try {
+        const rows = await query(
+            `SELECT
+                 (SELECT SUM(solar_energy_mwh)    FROM DailyGeneration) AS total_solar,
+                 (SELECT SUM(wind_energy_mwh)     FROM DailyGeneration) AS total_wind,
+                 (SELECT SUM(battery_storage_mwh) FROM BatteryStorage)  AS total_battery_storage
+             FROM dual`
+        );
+        res.json(rows[0]);
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
